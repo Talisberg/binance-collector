@@ -225,6 +225,51 @@ df = storage.read(
 info = storage.get_file_info('trades', 'BTCUSDT')
 ```
 
+## Data Inspection
+
+### Quick Stats
+
+```bash
+# Check collected data
+python << 'EOF'
+import pandas as pd
+from pathlib import Path
+from binance_collector import StorageEngine
+
+storage = StorageEngine(base_path='data')
+
+print("TRADES:")
+for symbol in ['BTCUSDT', 'ETHUSDT']:
+    df = storage.read('trades', symbol)
+    if not df.empty:
+        size_mb = Path(f'data/trades/{symbol}.parquet').stat().st_size / 1024 / 1024
+        print(f"  {symbol}: {len(df):,} trades, {size_mb:.2f} MB")
+        print(f"    Range: {df['timestamp'].min()} → {df['timestamp'].max()}")
+
+print("\nORDERBOOK:")
+for symbol in ['BTCUSDT', 'ETHUSDT']:
+    df = storage.read('orderbook', symbol)
+    if not df.empty:
+        print(f"  {symbol}: {len(df)} snapshots, {df['tick_size'].nunique()} tick sizes")
+EOF
+```
+
+### View Sample Data
+
+```python
+from binance_collector import StorageEngine
+
+storage = StorageEngine(base_path='data')
+
+# Read trades
+trades = storage.read('trades', 'BTCUSDT')
+print(trades.tail(10))  # Last 10 trades
+
+# Read orderbook
+orderbook = storage.read('orderbook', 'BTCUSDT')
+print(orderbook[orderbook['tick_size'] == 50].tail(5))  # Last 5 snapshots for $50 tick
+```
+
 ## No API Keys Required
 
 All data is public and accessible without authentication:
