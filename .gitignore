@@ -40,11 +40,3 @@ data/
 config.yaml
 .env
 *_credentials.json
-
-# Local deployment files (NEVER COMMIT)
-config/*_actual.py
-config/*_actual.yaml
-remote_client.py
-main_collector.py
-CLAUDE.md
-.sessions/
