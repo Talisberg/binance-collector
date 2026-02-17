@@ -37,6 +37,12 @@ data/
 *.csv
 
 # Config with secrets
+config/
 config.yaml
 .env
 *_credentials.json
+
+# Private deployment files
+remote_client.py
+main_collector.py
+.sessions/
