@@ -20,6 +20,7 @@ from .storage import StorageEngine
 from .config import Config, create_example_config
 from .schema import trades_to_ohlcv
 from .client import BinanceCollectorClient, get_local_client, get_hot_client, get_remote_client
+from .api_client import BinanceCollectorAPIClient
 
 __all__ = [
     'TradesCollector',
@@ -31,5 +32,6 @@ __all__ = [
     'BinanceCollectorClient',
     'get_local_client',
     'get_hot_client',
-    'get_remote_client'
+    'get_remote_client',
+    'BinanceCollectorAPIClient'
 ]
