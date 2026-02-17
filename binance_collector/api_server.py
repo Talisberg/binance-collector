@@ -129,6 +129,7 @@ def get_trades(
 
         # Convert timestamp to ISO string for JSON
         df['timestamp'] = df['timestamp'].astype(str)
+        df = df.fillna(0)
 
         return {
             'symbol': symbol,
@@ -185,6 +186,7 @@ def get_orderbook(
 
         # Convert timestamp to string
         df['timestamp'] = df['timestamp'].astype(str)
+        df = df.fillna(0)
 
         return {
             'symbol': symbol,
