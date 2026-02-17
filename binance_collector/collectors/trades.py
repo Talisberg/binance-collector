@@ -174,12 +174,13 @@ class TradesCollector:
 
         return combined
 
-    def update(self, save: bool = True) -> dict:
+    def update(self, save: bool = True, maintain_hot: bool = True) -> dict:
         """
         Update all symbols incrementally.
 
         Args:
             save: Save to storage (default: True)
+            maintain_hot: Update hot snapshot after write (default: True)
 
         Returns:
             Dict with collection stats per symbol
@@ -199,6 +200,8 @@ class TradesCollector:
                         dedup_columns=['agg_trade_id'],
                         sort_columns=['timestamp', 'agg_trade_id']
                     )
+                    if maintain_hot:
+                        self.storage.maintain_hot_snapshot('trades', symbol)
 
                 stats[symbol] = {
                     'rows': len(df),

@@ -239,12 +239,13 @@ class OrderBookCollector:
 
         return pd.concat(snapshots, ignore_index=True)
 
-    def update(self, save: bool = True) -> dict:
+    def update(self, save: bool = True, maintain_hot: bool = True) -> dict:
         """
         Collect and save snapshots for all symbols.
 
         Args:
             save: Save to storage (default: True)
+            maintain_hot: Update hot snapshot after write (default: True)
 
         Returns:
             Collection stats per symbol
@@ -272,6 +273,8 @@ class OrderBookCollector:
                     dedup_columns=['timestamp', 'tick_size'],
                     sort_columns=['timestamp', 'tick_size']
                 )
+                if maintain_hot:
+                    self.storage.maintain_hot_snapshot('orderbook', symbol)
 
                 stats[symbol] = {
                     'rows': len(symbol_df),
