@@ -1,313 +1,290 @@
-# Binance Collector
+# binance-collector
 
-Fast, schema-validated data ingestion for Binance cryptocurrency markets.
+Fast, schema-validated market data collection for Binance. Stores trades and order book snapshots in Parquet. Exposes data via SDK or REST API.
 
 ## Features
 
-- **🚀 Incremental updates**: Only fetch new data since last collection
-- **📊 Two core data sources**: Trades + Order Book (OHLCV derived from trades)
-- **✅ Schema validation**: Type-safe with Pydantic models
-- **💾 Efficient storage**: Parquet with automatic deduplication
-- **🔑 Zero config**: No API keys needed for public data
-- **⚡ Production ready**: Retry logic, rate limiting, parallel collection
+- **Incremental trades** - Uses `fromId`, never re-fetches
+- **Multi-tick order book** - Multiple price bucket sizes per snapshot (e.g. $10, $50, $100)
+- **Hot snapshots** - Last N rows always ready at <1ms for dashboards
+- **REST API** - Query data over HTTP with optional auth
+- **SDK client** - 3 access modes: local, hot, remote
+- **No API keys** - Public Binance endpoints only
+- **Parquet storage** - ~20 bytes/trade, snappy compressed
+
+---
 
 ## Installation
 
 ```bash
-# Clone or download
-git clone https://github.com/yourusername/binance-collector.git
-cd binance-collector
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Or install as package
-pip install -e .
+pip install git+https://github.com/Talisberg/binance-collector.git
 ```
 
-## Quick Start
+---
 
-### 1. Collect Trades (Incremental)
+## 1. Collect Data
+
+### Trades (incremental)
 
 ```python
 from binance_collector import TradesCollector
 
 collector = TradesCollector(symbols=['BTCUSDT', 'ETHUSDT'])
-stats = collector.update()  # Fetches only new trades
-
-print(stats)
-# {'BTCUSDT': {'rows': 1004, 'start_time': ..., 'end_time': ...}}
+stats = collector.update()  # fetches only new trades since last run
 ```
 
-### 2. Collect Order Book Snapshots
+### Order Book Snapshots
 
 ```python
 from binance_collector import OrderBookCollector
 
 collector = OrderBookCollector(
     symbols=['BTCUSDT'],
-    tick_sizes={'BTCUSDT': [10, 50, 100]},  # Multi-tick aggregation
+    tick_sizes={'BTCUSDT': [10, 50, 100]},  # price bucket sizes
     num_levels=15
 )
-
 stats = collector.update()
 ```
 
-### 3. Derive OHLCV from Trades
+### Continuous Collection (daemon)
 
 ```python
-from binance_collector import StorageEngine, trades_to_ohlcv
-
-storage = StorageEngine()
-trades_df = storage.read('trades', 'BTCUSDT')
-
-# Create hourly candles
-ohlcv = trades_to_ohlcv(trades_df, timeframe='1h')
+# See examples/04_continuous_collection.py
+# Runs trades + orderbook collectors in parallel threads
 ```
 
-## Data Types
+---
 
-### 1. Aggregate Trades
-- Incremental collection using `fromId`
-- Columns: `agg_trade_id`, `timestamp`, `symbol`, `price`, `quantity`, `is_buyer_maker`, etc.
-- Auto-deduplication on `agg_trade_id`
-- ~1ms latency from exchange
+## 2. Deploy API Server
 
-### 2. Order Book Snapshots
-- Multi-tick aggregation (e.g., $10, $50, $100 buckets)
-- 15 levels per side (configurable)
-- Cumulative quantities and USD values
-- Imbalance and depth ratio metrics
+The API server exposes collected data over HTTP, so dashboards and other services can query without downloading full files.
 
-### 3. OHLCV (Derived)
-- Generated from trade data
-- Any timeframe: 1m, 5m, 1h, 4h, 1d, etc.
-- More accurate than exchange candles
+### Config (`config/remote.yaml`, git-ignored)
 
-## Storage
+```yaml
+storage:
+  base_path: /root/crypto_data
+  compression: snappy
 
-**Parquet format** (10x smaller than CSV, columnar compression):
+api:
+  host: 0.0.0.0
+  port: 8000
+  api_key: null  # set to enable auth
+```
+
+### Start
+
+```bash
+python app.py --config config/remote.yaml
+```
+
+### As a systemd service
+
+```bash
+cp config/binance-api.service /etc/systemd/system/
+systemctl enable binance-api
+systemctl start binance-api
+```
+
+### Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/trades/{symbol}` | Recent trades |
+| GET | `/orderbook/{symbol}` | Order book snapshots |
+| GET | `/ohlcv/{symbol}` | OHLCV candles (derived from trades) |
+| GET | `/stats` | Row counts, file sizes, time ranges |
+| GET | `/symbols` | Available symbols |
+| GET | `/health` | Health check |
+
+**Query params:**
+```
+/trades/BTCUSDT?limit=1000&start_time=2026-02-15T00:00:00
+/orderbook/BTCUSDT?tick_size=10&limit=100
+/ohlcv/BTCUSDT?timeframe=1h&limit=24
+```
+
+**Authentication (if `api_key` set in config):**
+```bash
+curl -H "X-API-Key: your-key" http://your-host:8000/trades/BTCUSDT
+```
+
+---
+
+## 3. Consume Data (SDK)
+
+Three access modes depending on use case:
+
+### Local (reads from local filesystem)
+
+```python
+from binance_collector import get_local_client
+
+client = get_local_client(data_path='data')
+
+trades  = client.get_trades('BTCUSDT', limit=1000)
+orderbook = client.get_orderbook('BTCUSDT', tick_size=10, limit=100)
+ohlcv   = client.get_ohlcv('BTCUSDT', timeframe='1h')
+```
+
+### Hot (last 1024 rows, ~1ms read - for dashboards)
+
+```python
+from binance_collector import get_hot_client
+
+client = get_hot_client(data_path='data')
+
+recent = client.get_trades('BTCUSDT')      # last 1024 rows
+recent = client.get_orderbook('BTCUSDT', tick_size=10)  # last ~200 snapshots
+```
+
+### Remote (sync from collector machine)
+
+```python
+from binance_collector import BinanceCollectorClient, StorageEngine
+
+remote = BinanceCollectorClient(
+    mode='remote',
+    remote_host='your.host',
+    remote_user='root',
+    ssh_key_path='~/.ssh/id_rsa',
+    remote_data_path='/root/crypto_data'
+)
+local = StorageEngine(base_path='artifacts/live')
+
+# Dashboard: sync hot snapshot only (~200 KB, <1s)
+remote.sync_hot_snapshot('orderbook', 'BTCUSDT', local)
+df = local.read_hot('orderbook', 'BTCUSDT')  # instant
+
+# Training: incremental sync (only new rows since last sync)
+n_new = remote.sync_incremental('trades', 'BTCUSDT', local)
+print(f"Synced {n_new:,} new trades")
+```
+
+### API Client (query via HTTP)
+
+```python
+from binance_collector import BinanceCollectorAPIClient
+
+client = BinanceCollectorAPIClient(
+    base_url='http://your-host:8000',
+    api_key='your-key'  # optional
+)
+
+trades    = client.get_trades('BTCUSDT', limit=100)
+orderbook = client.get_orderbook('ETHUSDT', tick_size=10)
+ohlcv     = client.get_ohlcv('BTCUSDT', timeframe='1h')
+stats     = client.get_stats()
+```
+
+---
+
+## Data Schema
+
+### Trades
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `agg_trade_id` | int64 | Unique trade ID (dedup key) |
+| `timestamp` | datetime64 | Execution time (UTC) |
+| `symbol` | string | Trading pair |
+| `price` | float64 | Execution price |
+| `quantity` | float64 | Trade size (base asset) |
+| `is_buyer_maker` | bool | True if buyer is maker |
+
+~20 bytes/row compressed. See `SCHEMA.md` for full schema.
+
+### Order Book
+
+- **9 core columns**: timestamp, symbol, tick_size, best_bid, best_ask, spread, spread_pct, imbalance, depth_ratio
+- **120 level columns**: bid/ask price, qty, cumulative qty, cumulative USD for 15 levels per side
+- **5 tick sizes**: $10, $50, $100, $500, $1000 (configurable)
+
+### OHLCV (derived from trades)
+
+```python
+from binance_collector import trades_to_ohlcv
+
+ohlcv = trades_to_ohlcv(trades_df, timeframe='15min')
+# columns: timestamp, open, high, low, close, volume
+```
+
+---
+
+## Storage Layout
+
 ```
 data/
 ├── trades/
-│   ├── BTCUSDT.parquet
+│   ├── BTCUSDT.parquet        # full history
+│   ├── BTCUSDT_hot.parquet    # last 1024 rows (fast reads)
 │   └── ETHUSDT.parquet
 └── orderbook/
     ├── BTCUSDT.parquet
+    ├── BTCUSDT_hot.parquet
     └── ETHUSDT.parquet
 ```
 
-## Performance
-
-**Benchmark** (100k trades):
-- Parquet (snappy): 36ms write, 21ms read, 5.7 MB
-- Parquet (gzip): 173ms write, 7ms read, 5.2 MB
-- Feather: 27ms write, 3ms read, 5.0 MB
-
-**Recommendation**: Parquet with snappy (default) - best balance
-
-## Configuration (Optional)
+Hot snapshots are maintained by the collector after each write:
 
 ```python
-from binance_collector import Config
-
-# Load from file
-config = Config.from_file('config.yaml')
-
-# Or from environment variables
-config = Config.from_env()
-
-# Or create programmatically
-config = Config(
-    storage=StorageConfig(
-        base_path='data',
-        compression='snappy'
-    )
-)
+storage.maintain_hot_snapshot('trades', 'BTCUSDT', window_size=1024)
+df = storage.read_hot('trades', 'BTCUSDT')  # ~1ms
 ```
 
-## Examples
+---
 
-See `examples/` directory:
+## Performance
 
-1. **01_basic_trades.py** - Basic incremental trades collection
-2. **02_orderbook_snapshot.py** - Order book snapshots
-3. **03_derive_ohlcv.py** - Create OHLCV from trades
-4. **04_continuous_collection.py** - Daemon mode (parallel collection)
+| Format | Write | Read | Size (100k rows) |
+|--------|-------|------|------------------|
+| Parquet (snappy) | 37ms | 21ms | 5.7 MB |
+| Parquet (gzip) | 173ms | 7ms | 5.2 MB |
+| Feather | 27ms | 3ms | 5.0 MB |
 
-## Run Examples
+**Default:** Parquet + snappy (best balance)
 
-```bash
-cd examples
+**Hot snapshot read:** ~1ms (fixed 1024 rows)
 
-# Collect trades
-python 01_basic_trades.py
+**Growth rate:** ~3 MB/hour → ~2.2 GB/month per symbol set
 
-# Collect orderbook
-python 02_orderbook_snapshot.py
+---
 
-# Derive OHLCV
-python 03_derive_ohlcv.py
-
-# Run continuous (Ctrl+C to stop)
-python 04_continuous_collection.py
-```
-
-## Architecture
+## Project Layout
 
 ```
 binance_collector/
-├── collectors/          # Data collectors
-│   ├── trades.py       # Incremental trades
-│   └── orderbook.py    # Order book snapshots
-├── schema/             # Pydantic models + validation
-│   └── models.py
-├── storage/            # Parquet storage engine
-│   └── engine.py
-└── config.py           # Configuration management
+├── collectors/
+│   ├── trades.py        # incremental trades
+│   └── orderbook.py     # multi-tick snapshots
+├── schema/
+│   └── models.py        # Pydantic models, trades_to_ohlcv()
+├── storage/
+│   └── engine.py        # Parquet engine, hot snapshots
+├── client.py            # SDK client (local / hot / remote modes)
+├── api_client.py        # HTTP client for API server
+├── api_server.py        # FastAPI server
+└── config.py            # YAML/env configuration
+
+app.py                   # API server entry point (reads config/*)
+examples/                # Usage examples
+SCHEMA.md                # Full data schema reference
+SDK_USAGE.md             # SDK usage guide
 ```
 
-## API Reference
+---
 
-### TradesCollector
-
-```python
-collector = TradesCollector(
-    symbols=['BTCUSDT'],
-    storage=StorageEngine()
-)
-
-# Update (incremental)
-stats = collector.update(save=True)
-
-# Backfill from start time (max ~7 days via REST API)
-df = collector.backfill('BTCUSDT', start_time=datetime(2024, 1, 1))
-```
-
-### OrderBookCollector
-
-```python
-collector = OrderBookCollector(
-    symbols=['BTCUSDT'],
-    tick_sizes={'BTCUSDT': [10, 50, 100]},
-    num_levels=15
-)
-
-# Collect single snapshot
-df = collector.collect_snapshot('BTCUSDT')
-
-# Continuous mode
-collector.run_continuous(interval_seconds=30, duration_hours=24)
-```
-
-### StorageEngine
-
-```python
-storage = StorageEngine(base_path='data', compression='snappy')
-
-# Write with deduplication
-storage.write(
-    df,
-    data_type='trades',
-    symbol='BTCUSDT',
-    dedup_columns=['agg_trade_id']
-)
-
-# Read with time filter
-df = storage.read(
-    'trades',
-    'BTCUSDT',
-    start_time=pd.Timestamp('2024-01-01'),
-    end_time=pd.Timestamp('2024-02-01')
-)
-
-# Get file info
-info = storage.get_file_info('trades', 'BTCUSDT')
-```
-
-## Data Inspection
-
-### Quick Stats
+## Examples
 
 ```bash
-# Check collected data
-python << 'EOF'
-import pandas as pd
-from pathlib import Path
-from binance_collector import StorageEngine
-
-storage = StorageEngine(base_path='data')
-
-print("TRADES:")
-for symbol in ['BTCUSDT', 'ETHUSDT']:
-    df = storage.read('trades', symbol)
-    if not df.empty:
-        size_mb = Path(f'data/trades/{symbol}.parquet').stat().st_size / 1024 / 1024
-        print(f"  {symbol}: {len(df):,} trades, {size_mb:.2f} MB")
-        print(f"    Range: {df['timestamp'].min()} → {df['timestamp'].max()}")
-
-print("\nORDERBOOK:")
-for symbol in ['BTCUSDT', 'ETHUSDT']:
-    df = storage.read('orderbook', symbol)
-    if not df.empty:
-        print(f"  {symbol}: {len(df)} snapshots, {df['tick_size'].nunique()} tick sizes")
-EOF
+python examples/01_basic_trades.py          # collect trades
+python examples/02_orderbook_snapshot.py    # collect orderbook
+python examples/03_derive_ohlcv.py          # derive OHLCV
+python examples/04_continuous_collection.py # daemon mode
 ```
 
-### View Sample Data
-
-```python
-from binance_collector import StorageEngine
-
-storage = StorageEngine(base_path='data')
-
-# Read trades
-trades = storage.read('trades', 'BTCUSDT')
-print(trades.tail(10))  # Last 10 trades
-
-# Read orderbook
-orderbook = storage.read('orderbook', 'BTCUSDT')
-print(orderbook[orderbook['tick_size'] == 50].tail(5))  # Last 5 snapshots for $50 tick
-```
-
-## No API Keys Required
-
-All data is public and accessible without authentication:
-- ✅ Aggregate trades
-- ✅ Order book depth
-- ❌ Account trades (requires API keys)
-
-## Rate Limits
-
-Binance public API: **1200 requests/minute**
-
-This package:
-- Default: 10 parallel workers max
-- Auto-retry with exponential backoff
-- Sleep between requests (configurable)
+---
 
 ## License
 
-MIT License - Free for commercial and personal use
-
-## Contributing
-
-Contributions welcome! Please:
-1. Fork the repository
-2. Create a feature branch
-3. Add tests
-4. Submit pull request
-
-## Roadmap
-
-- [ ] WebSocket support for real-time streaming
-- [ ] More exchanges (Coinbase, Kraken, etc.)
-- [ ] Data quality metrics
-- [ ] Compression benchmarks
-- [ ] Docker image
-
-## Support
-
-- 📖 Documentation: See `examples/`
-- 🐛 Issues: GitHub Issues
-- 💬 Discussions: GitHub Discussions
+MIT - free for commercial and personal use.
