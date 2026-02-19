@@ -149,6 +149,7 @@ def get_hot(
     data_type: str,
     symbol: str,
     authenticated: bool = Depends(verify_api_key),
+    levels: Optional[int] = Query(None, ge=1, le=15, description="Project to N orderbook levels (orderbook only)")
 ):
     """
     Return hot snapshot (last N rows, pre-sliced parquet) for fast dashboard reads.
@@ -157,12 +158,19 @@ def get_hot(
     Examples:
     - /hot/trades/BTCUSDT
     - /hot/orderbook/BTCUSDT
+    - /hot/orderbook/BTCUSDT?levels=5   # 27 cols instead of 130
     """
     try:
         df = storage.read_hot(data_type, symbol)
 
         if df.empty:
             raise HTTPException(status_code=404, detail=f"No hot snapshot for {data_type}/{symbol}")
+
+        # Project to N levels before serialization (reduces wire size)
+        if levels is not None and data_type == 'orderbook':
+            from .schema import orderbook_level_columns
+            cols = [c for c in orderbook_level_columns(levels, include_cumulative=True) if c in df.columns]
+            df = df[cols]
 
         df['timestamp'] = df['timestamp'].astype(str)
         df = df.fillna(0)

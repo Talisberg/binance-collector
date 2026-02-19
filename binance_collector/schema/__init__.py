@@ -4,7 +4,8 @@ from .models import (
     TRADE_SCHEMA,
     ORDERBOOK_BASE_SCHEMA,
     validate_dataframe,
-    trades_to_ohlcv
+    trades_to_ohlcv,
+    orderbook_level_columns
 )
 
 __all__ = [
@@ -13,5 +14,6 @@ __all__ = [
     'TRADE_SCHEMA',
     'ORDERBOOK_BASE_SCHEMA',
     'validate_dataframe',
-    'trades_to_ohlcv'
+    'trades_to_ohlcv',
+    'orderbook_level_columns'
 ]

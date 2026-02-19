@@ -91,6 +91,33 @@ ORDERBOOK_BASE_SCHEMA = {
 }
 
 
+def orderbook_level_columns(levels: int, include_cumulative: bool = False) -> list:
+    """
+    Return ordered list of orderbook level column names for N levels.
+
+    Args:
+        levels: Number of price levels per side (e.g., 15)
+        include_cumulative: Include cum_qty and cum_usd columns (default: False)
+
+    Returns:
+        List of column names: base cols + bid/ask price+qty[+cum] for each level
+
+    Example:
+        cols = orderbook_level_columns(5)
+        # ['timestamp', 'symbol', 'tick_size', 'best_bid', 'best_ask',
+        #  'spread', 'spread_pct', 'imbalance', 'depth_ratio',
+        #  'bid_price_1', 'bid_qty_1', 'ask_price_1', 'ask_qty_1', ...]
+    """
+    base = list(ORDERBOOK_BASE_SCHEMA.keys())
+    level_cols = []
+    fields = ['price', 'qty', 'cum_qty', 'cum_usd'] if include_cumulative else ['price', 'qty']
+    for i in range(1, levels + 1):
+        for side in ('bid', 'ask'):
+            for f in fields:
+                level_cols.append(f'{side}_{f}_{i}')
+    return base + level_cols
+
+
 def validate_dataframe(df: pd.DataFrame, schema: dict) -> pd.DataFrame:
     """
     Validate and enforce DataFrame schema.

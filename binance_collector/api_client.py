@@ -166,7 +166,8 @@ class BinanceCollectorAPIClient:
     def get_hot(
         self,
         data_type: str,
-        symbol: str
+        symbol: str,
+        levels: int = None
     ) -> pd.DataFrame:
         """
         Get hot snapshot — pre-sliced recent rows, fast fixed-size read.
@@ -175,16 +176,23 @@ class BinanceCollectorAPIClient:
         Args:
             data_type: 'trades' or 'orderbook'
             symbol: Trading pair (e.g., 'BTCUSDT')
+            levels: Project orderbook to N levels (1-15). Reduces payload ~4x.
+                    Only applies to orderbook. Default: None (all columns).
 
         Returns:
             DataFrame with recent rows
 
         Example:
             df = client.get_hot('trades', 'BTCUSDT')
-            df = client.get_hot('orderbook', 'BTCUSDT')
+            df = client.get_hot('orderbook', 'BTCUSDT', levels=5)  # 27 cols vs 130
         """
+        params = {}
+        if levels is not None:
+            params['levels'] = levels
+
         response = requests.get(
             f'{self.base_url}/hot/{data_type}/{symbol}',
+            params=params,
             headers=self.headers,
             timeout=self.timeout
         )

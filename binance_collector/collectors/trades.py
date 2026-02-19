@@ -86,21 +86,22 @@ class TradesCollector:
         if not raw_trades:
             return pd.DataFrame()
 
-        records = []
-        for t in raw_trades:
-            records.append({
-                'agg_trade_id': t['a'],
-                'timestamp': pd.to_datetime(t['T'], unit='ms'),
-                'symbol': symbol,
-                'price': float(t['p']),
-                'quantity': float(t['q']),
-                'first_trade_id': t['f'],
-                'last_trade_id': t['l'],
-                'is_buyer_maker': t['m'],
-                'is_best_match': t['M']
-            })
+        _RENAME = {
+            'a': 'agg_trade_id',
+            'T': 'timestamp',
+            'p': 'price',
+            'q': 'quantity',
+            'f': 'first_trade_id',
+            'l': 'last_trade_id',
+            'm': 'is_buyer_maker',
+            'M': 'is_best_match'
+        }
+        df = pd.DataFrame(raw_trades).rename(columns=_RENAME)
+        df['symbol'] = symbol
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        df['price'] = df['price'].astype('float64')
+        df['quantity'] = df['quantity'].astype('float64')
 
-        df = pd.DataFrame(records)
         return validate_dataframe(df, TRADE_SCHEMA)
 
     def collect_symbol(
