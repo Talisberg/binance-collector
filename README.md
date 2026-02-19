@@ -92,6 +92,7 @@ systemctl start binance-api
 |--------|----------|-------------|
 | GET | `/trades/{symbol}` | Recent trades |
 | GET | `/orderbook/{symbol}` | Order book snapshots |
+| GET | `/hot/{data_type}/{symbol}` | Hot snapshot (pre-sliced, fast read) |
 | GET | `/ohlcv/{symbol}` | OHLCV candles (derived from trades) |
 | GET | `/stats` | Row counts, file sizes, time ranges |
 | GET | `/symbols` | Available symbols |
@@ -102,6 +103,8 @@ systemctl start binance-api
 /trades/BTCUSDT?limit=1000&start_time=2026-02-15T00:00:00
 /orderbook/BTCUSDT?tick_size=10&limit=100
 /ohlcv/BTCUSDT?timeframe=1h&limit=24
+/hot/trades/BTCUSDT          # fast, pre-sliced ~8 min window
+/hot/orderbook/BTCUSDT       # fast, pre-sliced recent snapshots
 ```
 
 **Authentication (if `api_key` set in config):**
@@ -174,6 +177,7 @@ client = BinanceCollectorAPIClient(
 trades    = client.get_trades('BTCUSDT', limit=100)
 orderbook = client.get_orderbook('ETHUSDT', tick_size=10)
 ohlcv     = client.get_ohlcv('BTCUSDT', timeframe='1h')
+hot       = client.get_hot('trades', 'BTCUSDT')     # fast, no full scan
 stats     = client.get_stats()
 ```
 
