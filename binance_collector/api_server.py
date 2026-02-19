@@ -69,6 +69,7 @@ def root():
         "endpoints": [
             "/trades/{symbol}",
             "/orderbook/{symbol}",
+            "/hot/{data_type}/{symbol}",
             "/ohlcv/{symbol}",
             "/stats",
             "/symbols"
@@ -139,6 +140,42 @@ def get_trades(
 
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Symbol {symbol} not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/hot/{data_type}/{symbol}")
+def get_hot(
+    data_type: str,
+    symbol: str,
+    authenticated: bool = Depends(verify_api_key),
+):
+    """
+    Return hot snapshot (last N rows, pre-sliced parquet) for fast dashboard reads.
+    Reads fixed-size hot file directly — no full parquet scan.
+
+    Examples:
+    - /hot/trades/BTCUSDT
+    - /hot/orderbook/BTCUSDT
+    """
+    try:
+        df = storage.read_hot(data_type, symbol)
+
+        if df.empty:
+            raise HTTPException(status_code=404, detail=f"No hot snapshot for {data_type}/{symbol}")
+
+        df['timestamp'] = df['timestamp'].astype(str)
+        df = df.fillna(0)
+
+        return {
+            'symbol': symbol,
+            'data_type': data_type,
+            'count': len(df),
+            'data': df.to_dict(orient='records')
+        }
+
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Hot file not found for {data_type}/{symbol}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -163,6 +163,41 @@ class BinanceCollectorAPIClient:
 
         return df
 
+    def get_hot(
+        self,
+        data_type: str,
+        symbol: str
+    ) -> pd.DataFrame:
+        """
+        Get hot snapshot — pre-sliced recent rows, fast fixed-size read.
+        No full parquet scan on the server side.
+
+        Args:
+            data_type: 'trades' or 'orderbook'
+            symbol: Trading pair (e.g., 'BTCUSDT')
+
+        Returns:
+            DataFrame with recent rows
+
+        Example:
+            df = client.get_hot('trades', 'BTCUSDT')
+            df = client.get_hot('orderbook', 'BTCUSDT')
+        """
+        response = requests.get(
+            f'{self.base_url}/hot/{data_type}/{symbol}',
+            headers=self.headers,
+            timeout=self.timeout
+        )
+        response.raise_for_status()
+
+        data = response.json()
+        df = pd.DataFrame(data['data'])
+
+        if not df.empty:
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+
+        return df
+
     def get_ohlcv(
         self,
         symbol: str,

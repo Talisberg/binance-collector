@@ -202,7 +202,7 @@ class StorageEngine:
         self,
         data_type: str,
         symbol: str,
-        window_size: int = 1024
+        window_size: int = 5000
     ):
         """
         Maintain hot snapshot file with last N rows for fast dashboard access.
@@ -219,10 +219,10 @@ class StorageEngine:
         Example:
             # Collector writes data
             storage.write(df, 'trades', 'BTCUSDT', ...)
-            storage.maintain_hot_snapshot('trades', 'BTCUSDT', window_size=1024)
+            storage.maintain_hot_snapshot('trades', 'BTCUSDT', window_size=5000)
 
             # Dashboard reads hot data
-            recent = storage.read_hot('trades', 'BTCUSDT')  # ~1ms, always 1024 rows
+            recent = storage.read_hot('trades', 'BTCUSDT')  # ~1ms, always 5000 rows
         """
         main_file = self.base_path / data_type / f"{symbol}.parquet"
         hot_file = self.base_path / data_type / f"{symbol}_hot.parquet"
